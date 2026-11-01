@@ -141,3 +141,84 @@ Setup เพิ่มเฉพาะ block ระหว่าง `AIORCHESTRA:BE
 การเชื่อมนี้ใช้กับ **Claude Code** ที่มีสิทธิ์อ่านไฟล์ในเครื่อง รวมโหมด Code ของ Desktop ที่ใช้ instruction files นี้ ไม่ได้ติดตั้งคำสั่งในแชต Claude ทั่วไปหรือบน cloud เครื่องอื่นโดยอัตโนมัติ โปรไฟล์ Agent ยังเป็นคำสั่งบทบาท ไม่ได้ติดตั้ง native Claude subagents ใน `~/.claude/agents/` หากต้องการ native subagents ของทีม ให้ใช้ Export ของ Claude ตามเดิม
 
 เอกสาร: [Claude Code memory](https://code.claude.com/docs/en/memory), [CLAUDE_CONFIG_DIR](https://code.claude.com/docs/en/env-vars)
+
+## โควตาบน Dashboard
+
+หน้า Overview มีการ์ด **Codex** และ **Claude Code** แสดงเปอร์เซ็นต์โควตาสมาชิกคงเหลือ เวลารีเซ็ต และเวลาที่ได้รับข้อมูลล่าสุด กด **อัปเดต** เพื่ออ่านข้อมูล ไม่เรียกโมเดลหรือสร้างงานเพิ่ม ข้อมูลที่ไม่ทราบจะแสดง “ยังไม่มีข้อมูล” แทน 0% ส่วน 0% ที่ผู้ให้บริการรายงานจริงจะแสดงตามจริง
+
+### Codex
+
+ใช้ Codex CLI ที่ล็อกอินไว้ ผ่าน `codex app-server --stdio` แล้วเรียกเฉพาะ `initialize`, `account/read`, `account/rateLimits/read` ไม่อ่านหรือส่งไฟล์ auth มาให้ Dashboard ไม่เปลี่ยนบัญชี ไม่ล็อกเอาต์ และไม่เรียก generate/model
+
+- ค้น `codex` ใน PATH พร้อมตำแหน่งแอปมาตรฐานบน macOS บน Windows ให้มีคำสั่ง Codex CLI ใน PATH แล้วเริ่มเซิร์ฟเวอร์ใหม่
+- หากยังไม่ล็อกอินให้รัน `codex login` เอง จากนั้นกดอัปเดต ใช้บัญชีสมาชิกเดิม ไม่ต้องใส่ `OPENAI_API_KEY`
+- Cache ผล 60 วินาทีเพื่อไม่เรียกบริการซ้ำถี่เกินไป และจำกัดเวลารอ App Server
+- หาก CLI ใช้ API key จะแสดง **โหมด API** พร้อมปุ่มไปหน้า API Keys กลาง รายงาน usage/cost และยอด API credits **ยังไม่ได้เชื่อมต่อ** คีย์ API ธรรมดาไม่ทำให้เห็นโควตาแพ็กเกจสมาชิก
+- ไม่แสดง email/account identifier หรือ credentials ในผลลัพธ์
+
+### Claude Code CLI
+
+กด **ตั้งค่าตัวเชื่อม CLI** บนการ์ด Claude เพื่อตรวจตัวอย่าง command จากนั้นกด **ติดตั้งตัวเชื่อมโควตา** ระบบเพิ่ม `statusLine` ใน `settings.json` ของ `CLAUDE_CONFIG_DIR` หรือ `~/.claude` พร้อมสำรองไฟล์และรักษา settings อื่นไว้ ใช้ Python ตัวเดียวกับที่รัน Dashboard; Windows เรียกผ่าน PowerShell โดยเข้ารหัส command เพื่อรองรับ path ที่มีช่องว่าง
+
+เปิด Claude Code CLI ใหม่และส่งข้อความตามการใช้งานปกติ ตัวเชื่อม `claude_quota_bridge.py` จะรับ JSON จาก status line โดยเก็บเฉพาะโควตา 5 ชั่วโมง/7 วัน และเวลารีเซ็ตใน `workspace/usage/claude.json` ไม่เก็บ prompt, transcript, session identifier, API key หรือข้อมูล auth จาก payload จากนั้นกด **อัปเดต** บน Dashboard
+
+- ไม่มีการส่งข้อความหาโมเดลให้อัตโนมัติเพื่อเช็กโควตา CLI จะมีข้อมูลเมื่อบัญชี/เวอร์ชันรองรับและได้รับ response ตามการใช้งานของคุณ
+- ไม่มีการนำ API key ไปขอข้อมูลสมาชิก ไม่มีการคัดลอก OAuth token
+- ถ้าตั้ง status line อื่นไว้ ระบบจะ **ไม่เขียนทับ** ให้ดู command ตัวเชื่อมในตัวอย่างแล้วรวมกับ status line ของคุณเองโดยส่ง JSON stdin เดียวกันให้ทั้งสองสคริปต์ กรณีนี้ต้องปรับสคริปต์ status line เดิมด้วยตนเอง
+- ข้อมูลอายุมากกว่า 5 นาทีหรือเลยเวลารีเซ็ตจะแสดง **ข้อมูลเก่า** ค่าที่แสดงเป็น snapshot ไม่ใช่การคาดการณ์โควตาหลังรีเซ็ต
+- Snapshot ล่าสุดมาจาก CLI ที่ส่งเข้าคลังนี้ ไม่รับประกันว่าจะตรงกับบัญชีอื่นที่เปิดพร้อมกัน
+- ตัวเชื่อมนี้เป็นของ Claude Code **CLI** ไม่รับประกันการส่ง status line จาก Code ใน Desktop หรือ Claude chat ทั่วไป
+- ย้ายโฟลเดอร์โปรแกรมแล้วต้องอัปเดต statusLine command ให้ตรงตำแหน่งใหม่ หาก command เดิมยังอยู่ระบบจะไม่เขียนทับเอง
+- หากต้องการยกเลิกตัวเชื่อม ให้คืน settings จากไฟล์สำรอง หรือลบเฉพาะ `statusLine` ของ AIOrchestra
+
+โควตาสมาชิก, tokens ใน context window, rate limit ต่อเวลา, API cost และยอด prepaid credits เป็นคนละค่า Dashboard รุ่นนี้แสดง **โควตาสมาชิก** เท่านั้น ไม่ตีความเป็นจำนวน tokens ที่ซื้อเหลืออยู่
+
+อ้างอิง: [Codex App Server](https://learn.chatgpt.com/docs/app-server), [Claude status line](https://code.claude.com/docs/en/statusline)
+
+## Live Agents และ Activity
+
+หน้า Overview แสดงตาราง **Agent / Engine / Project / Status** พร้อม Activity รูปแบบ `เวลา | project | engine | เหตุการณ์` หน้าแต่ละทีมกรองเฉพาะข้อมูลของทีมนั้น ป้าย **● Active สีเขียว** ปรากฏใน sidebar และการ์ดทีมเมื่อมีอย่างน้อยหนึ่งเซสชันกำลังทำงานตามรายงานล่าสุด
+
+### เริ่มใช้กับ Codex และ Claude
+
+1. รีสตาร์ตเซิร์ฟเวอร์และรีเฟรช Dashboard
+2. กด **Setup AI Clients** เลือก Codex แล้วบันทึก `AGENTS.md` ใหม่; หากใช้ Claude ให้เลือก Claude แล้วบันทึก `CLAUDE.md` ใหม่ด้วย
+3. เริ่มเซสชันใหม่ในเครื่องมือที่เลือก คำสั่ง Setup รุ่นใหม่จะให้ Agent เรียก `report_agent.py` หลังเลือกโปรไฟล์ หลังโหลด Skill และเมื่อเปลี่ยนสถานะ
+4. Dashboard อ่านรายงานใหม่ทุก 5 วินาที ไม่ต้องเปิดโมเดลเพิ่มหรือใช้ API key เพื่อรายงาน
+
+เป็น **สถานะที่ client รายงาน** ไม่ใช่การสอดส่องหรือยืนยันว่ามี native subagent process แยกทำงานอยู่ เครื่องมือต้องทำตามคำสั่งรายงานและได้รับสิทธิ์เรียกสคริปต์/เขียน runtime storage หาก sandbox ของโปรเจคอื่นไม่อนุญาต ให้ใช้วิธีอนุญาตตามปกติของเครื่องมือนั้น ห้ามข้ามข้อจำกัด หากส่งรายงานไม่ได้ให้แสดงว่าไม่พร้อมติดตาม ไม่อ้างว่า Dashboard เชื่อมแล้ว
+
+ไม่มีการติดตั้ง hooks หรือแก้ instruction files จริงโดยอัตโนมัติจากการอัปเดตโค้ด ต้องกด Setup เพื่อใช้คำสั่งรุ่นใหม่ งานหรือเซสชันเก่าที่ไม่เคยส่งรายงานจะไม่แสดงเอง และจะไม่มีการสร้างแถวตัวอย่างให้ดูเหมือนงานจริง
+
+### สถานะ
+
+| Status | ความหมาย | Active |
+| --- | --- | --- |
+| กำลังทำงาน | รับ selected / working / skill หรือ heartbeat ล่าสุด | เขียว |
+| รอรับงาน / รอผู้ใช้ | Client รายงาน waiting | ไม่ขึ้น |
+| เสร็จแล้ว | Client รายงาน done | ไม่ขึ้น |
+| ล้มเหลว | Client รายงาน failed | ไม่ขึ้น |
+| ไม่ทราบสถานะ | ไม่มีการยืนยันเกิน 180 วินาที หรือ Dashboard ติดต่อ server ไม่ได้ | ไม่ขึ้น |
+
+Client ควรรายงานความคืบหน้าหรือ heartbeat ภายใน 120 วินาทีขณะทำงาน ไม่เปิด heartbeat daemon ที่ทำให้ Active ค้างหลังงานหยุด เมื่อรอหรือจบให้รายงานทันที ค่าไม่ทราบสถานะไม่ได้แปลว่างานเสร็จ; อาจเป็นงานยาวที่ยังไม่ส่งรายงาน
+
+### เรียกรายงานด้วยตนเอง / สำหรับ integrations
+
+รันจากโฟลเดอร์โปรแกรม (Windows ใช้ `py` หรือ `python` แทน `python3`):
+
+```text
+python3 report_agent.py --engine Codex --team developer --agent software-engineer --project /absolute/path/to/shop-app --event selected
+```
+
+ผลตอบกลับมี `session` ให้ใช้ ID เดิมในเหตุการณ์ถัดไป โดยคง engine/team/agent/project เดิม เช่น:
+
+```text
+python3 report_agent.py --engine Codex --team developer --agent software-engineer --project /absolute/path/to/shop-app --session SESSION_ID --event skill --skill implementation-review
+python3 report_agent.py --engine Codex --team developer --agent software-engineer --project /absolute/path/to/shop-app --session SESSION_ID --event done
+```
+
+Windows ให้ใส่ project เป็น absolute path เช่น `"C:\Projects\shop-app"` เลือก `--engine Claude` เมื่อรายงานจาก Claude รองรับเหตุการณ์ `selected`, `skill`, `working`, `waiting`, `done`, `failed`, `heartbeat`; หากไม่ส่ง `--session` ใน selected ระบบสร้าง UUID ให้ ไม่รองรับข้อความรายงานอิสระที่อาจมีโค้ดหรือ secrets ปะปน
+
+ใช้ `--workspace` ระบุคลังอื่นได้ โดย default ใช้ workspace ข้างตัวโปรแกรม รายงานจะตรวจว่า team/agent/skill มีจริงในคลัง Engine+session แยกกันเพื่อรองรับหลายโปรเจคพร้อมกัน หากเปลี่ยนโปรไฟล์ในเซสชันเดิมให้ส่ง selected ใหม่ ตารางจะแสดงโปรไฟล์ล่าสุด ส่วนเหตุการณ์เก่าเก็บใน Activity
+
+ข้อมูล local อยู่ที่ `workspace/runtime/activity.sqlite3` (SQLite, ไม่รวมใน Git/ZIP) เก็บ 1,000 เหตุการณ์ล่าสุด, ส่งให้ Dashboard 100 เหตุการณ์ล่าสุด และแสดงไม่เกิน 200 เซสชันล่าสุด เก็บชื่อทีม Agent/Skill, engine, project path, session, event และเวลาเท่านั้น ไม่เก็บ prompts, API keys หรือเนื้อหางาน งานเก่ากว่า 30 วันถูกล้างเมื่อมีรายงานใหม่

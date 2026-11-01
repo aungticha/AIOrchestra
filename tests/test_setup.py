@@ -28,8 +28,9 @@ class SetupTests(unittest.TestCase):
         info=codex_setup.preview(self.library)
         self.assertEqual(info['path'],str(self.home/'AGENTS.md'))
         self.assertFalse(info['exists'])
-        self.assertIn(str(self.library),info['block'])
-        self.assertNotIn('/Users/aungticha',info['block'])
+        self.assertIn(str(self.library.resolve()),info['block'])
+        library_line=info['block'].split('Agent library (absolute local path, JSON-quoted):\n',1)[1].splitlines()[0]
+        self.assertEqual(json.loads(library_line),str(self.library.resolve()))
         result=codex_setup.install(self.library,None,info['revision'])
         self.assertTrue(result['updated'])
         self.assertIsNone(result['backup'])
@@ -58,7 +59,7 @@ class SetupTests(unittest.TestCase):
         info=codex_setup.preview(moved)
         codex_setup.install(moved,None,info['revision'])
         self.assertEqual(path.read_text(encoding='utf-8-sig').count(codex_setup.BEGIN),1)
-        self.assertIn(str(moved),path.read_text(encoding='utf-8-sig'))
+        self.assertIn(str(moved.resolve()),path.read_text(encoding='utf-8-sig'))
         self.assertTrue(path.read_bytes().startswith(original))
 
     def test_manual_path_override_warning_and_stale_preview(self):
@@ -141,10 +142,10 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(claude['filename'],'CLAUDE.md')
             with post('/api/setup/install',{'client':'claude','path':claude['path'],'revision':claude['revision']}) as r:
                 self.assertTrue(json.load(r)['updated'])
-            self.assertIn(str(self.library),(claude_home/'CLAUDE.md').read_text())
+            self.assertIn(str(self.library.resolve()),(claude_home/'CLAUDE.md').read_text())
             with post('/api/setup/install',{'path':info['path'],'revision':info['revision']}) as r:
                 self.assertTrue(json.load(r)['updated'])
-            self.assertIn(str(self.library),(self.home/'AGENTS.md').read_text())
+            self.assertIn(str(self.library.resolve()),(self.home/'AGENTS.md').read_text())
             with self.assertRaises(HTTPError) as e:
                 post('/api/setup/install',{'revision':info['revision']},'https://evil.example')
             self.assertEqual(e.exception.code,403)

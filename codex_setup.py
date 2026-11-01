@@ -4,6 +4,7 @@ import hashlib
 import os
 import tempfile
 import threading
+import sys
 
 BEGIN = '<!-- AIORCHESTRA:BEGIN -->'
 END = '<!-- AIORCHESTRA:END -->'
@@ -46,10 +47,14 @@ def target_path(custom=None, client='codex'):
     return path.absolute()
 
 
-def instruction_block(library):
+def instruction_block(library, client='codex'):
+    config = client_settings(client)
     # JSON quoting keeps backslashes, spaces and unusual path characters unambiguous.
     import json
     library_path = json.dumps(str(Path(library).resolve()), ensure_ascii=False)
+    reporter = json.dumps(str(Path(__file__).resolve().parent / 'report_agent.py'), ensure_ascii=False)
+    interpreter = json.dumps(sys.executable, ensure_ascii=False)
+    engine = 'Claude' if client == 'claude' else 'Codex'
     return f'''{BEGIN}
 ## AIOrchestra agent library
 
@@ -69,6 +74,29 @@ Never read workspace/secrets or API key files to select an agent.
 If the library is inaccessible, report that fact; do not claim it was loaded.
 Agent profiles are role instructions, not automatically launched subagents.
 Do not bypass sandbox restrictions to access the library.
+
+### Live agent reporting
+
+Use this local Python reporter to report actual profile usage to the dashboard.
+Python executable (JSON-quoted): {interpreter}
+Reporter script (JSON-quoted): {reporter}
+Engine argument: {engine}
+
+After selecting a profile, invoke the reporter with these separate arguments:
+--engine {engine} --team <team-id> --agent <agent-id> --project <absolute-current-project-path> --event selected
+Use the Python executable and reporter paths above with your platform's normal argument quoting.
+Capture the returned session ID and pass --session <id> for every subsequent event.
+After actually reading a related SKILL.md, report --event skill --skill <skill-id>.
+Report --event working when starting implementation, --event waiting when waiting for user input,
+--event done when the task is complete, and --event failed if the task fails.
+Reuse the same engine/team/agent/project arguments throughout the session.
+While actively working, report --event heartbeat or a progress event at least once every 120 seconds
+when tool access permits. Do not run a detached heartbeat process or claim activity without doing work.
+After a terminal done/failed event, start a fresh selected event for the next task.
+The dashboard expires unconfirmed activity after 180 seconds. Waiting is not Active.
+Do not include prompts, source code, secret values, or tokens in reports.
+If the reporter is unavailable or blocked by tool permissions, say reporting is unavailable;
+do not bypass restrictions and do not claim the dashboard is tracking the task.
 {END}'''
 
 
@@ -104,7 +132,7 @@ def preview(library, custom=None, client='codex'):
     config = client_settings(client)
     path = target_path(custom, client)
     raw = existing(path)
-    block = instruction_block(library)
+    block = instruction_block(library, client)
     merged = merged_content(raw, block)
     override = path.parent / 'AGENTS.override.md'
     active_home = client_home(client).resolve()

@@ -4,6 +4,8 @@ from pathlib import Path
 import argparse, io, json, re, zipfile, tempfile, os
 import token_store
 import codex_setup
+import quota
+import live_agents
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'workspace'
@@ -134,6 +136,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.trusted():
             return self.respond(403, {'error':'Local requests only'})
+        if self.path == '/api/live':
+            try:
+                return self.respond(200, live_agents.snapshot(DATA))
+            except (OSError, ValueError, live_agents.sqlite3.Error):
+                return self.respond(400, {'error':'อ่าน Live Agents ไม่สำเร็จ กรุณาตรวจสิทธิ์ runtime storage'})
+        if self.path == '/api/quota':
+            return self.respond(200, {'codex':quota.cached_codex(), 'claude':quota.claude_status(DATA)})
+        if self.path == '/api/quota/claude-bridge':
+            try:
+                return self.respond(200, quota.bridge_preview(DATA))
+            except (OSError, ValueError) as e:
+                return self.respond(400, {'error':str(e)})
         if self.path == '/api/setup':
             try:
                 return self.respond(200, codex_setup.preview(DATA / 'teams'))
@@ -166,6 +180,10 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('Request must be an object')
+            if self.path == '/api/quota/refresh':
+                return self.respond(200, {'codex':quota.codex_status(), 'claude':quota.claude_status(DATA)})
+            if self.path == '/api/quota/claude-bridge':
+                return self.respond(200, quota.install_bridge(DATA, data.get('revision')))
             if self.path == '/api/setup/preview':
                 return self.respond(200, codex_setup.preview(DATA / 'teams', data.get('path'), data.get('client', 'codex')))
             if self.path == '/api/setup/install':
