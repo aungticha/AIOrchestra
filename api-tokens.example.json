@@ -1,0 +1,5 @@
+{
+  "OPENAI_API_KEY": "replace-with-your-openai-api-key",
+  "ANTHROPIC_API_KEY": "replace-with-your-anthropic-api-key",
+  "GITHUB_TOKEN": "replace-with-your-github-token"
+}
