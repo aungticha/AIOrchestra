@@ -1,0 +1,2 @@
+# macOS/Linux use the Python standard library. Windows requires ConPTY bindings.
+pywinpty>=2.0.15,<4; sys_platform == "win32"

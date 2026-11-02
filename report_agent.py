@@ -17,6 +17,8 @@ def main(argv=None):
     parser.add_argument('--session',help='Reuse the session returned by selected for later events')
     parser.add_argument('--event',choices=sorted(live_agents.EVENTS),required=True)
     parser.add_argument('--skill')
+    parser.add_argument('--summary',default='',help='Task title / concise description')
+    parser.add_argument('--result',default='',help='Completed work / result for human review')
     args=parser.parse_args(argv)
     if not args.session and args.event!='selected': parser.error('--session is required after selected')
     payload=vars(args).copy()

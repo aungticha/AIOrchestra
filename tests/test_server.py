@@ -32,7 +32,9 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('Marketing', server.read(server.teamdir('marketing')/'README.md'))
 
     def test_paths_and_symlinks_cannot_escape_workspace(self):
-        for value in ('../escape','/tmp','UPPER','a/b','x\n'):
+        for value in ('../escape','/tmp','UPPER','a/b'):
+            self.assertTrue(server.document(value,'rules').is_relative_to(server.DATA.resolve()/'teams'))
+        for value in ('','x\n'):
             with self.assertRaises(ValueError):
                 server.document(value,'rules')
         try:
@@ -75,6 +77,10 @@ class WorkspaceTests(unittest.TestCase):
             return urlopen(Request(base+path,data=json.dumps(body).encode(),headers=headers))
         try:
             self.assertEqual(urlopen(base).status,200)
+            for asset in ('office_state.js','office_motion.js','pixel_office.js'):
+                with urlopen(base+'/'+asset) as response:
+                    self.assertEqual(response.status,200)
+                    self.assertIn('javascript',response.headers['Content-Type'])
             updated='# Updated rules\n\nVerify all claims.'
             with post('/api/save',{'team':'marketing','kind':'rules','content':updated}) as r:
                 self.assertEqual(json.load(r)['teams'][0]['rules'],updated)
