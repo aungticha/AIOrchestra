@@ -5,6 +5,7 @@ import os
 import tempfile
 import threading
 import sys
+import workflow_setup
 
 BEGIN = '<!-- AIORCHESTRA:BEGIN -->'
 END = '<!-- AIORCHESTRA:END -->'
@@ -47,7 +48,7 @@ def target_path(custom=None, client='codex'):
     return path.absolute()
 
 
-def instruction_block(library, client='codex'):
+def instruction_block(library, client='codex', skill_path=None):
     config = client_settings(client)
     # JSON quoting keeps backslashes, spaces and unusual path characters unambiguous.
     import json
@@ -55,13 +56,22 @@ def instruction_block(library, client='codex'):
     reporter = json.dumps(str(Path(__file__).resolve().parent / 'report_agent.py'), ensure_ascii=False)
     interpreter = json.dumps(sys.executable, ensure_ascii=False)
     engine = 'Claude' if client == 'claude' else 'Codex'
+    skill_path=json.dumps(str(skill_path or workflow_setup.skill_target(target_path(None,client),client)),ensure_ascii=False)
     return f'''{BEGIN}
 ## AIOrchestra agent library
 
 Agent library (absolute local path, JSON-quoted):
 {library_path}
 
+### Development workflow routing
+
+For implementation/build/feature/bug-fix requests in a Git project, read and use the workflow bridge skill before direct implementation, unless the user explicitly requests direct single-agent work:
+{skill_path}
+Send the task to the running AIOrchestra server, monitor its real status, and relay its User Accept gates in chat. Do not reproduce the workflow by merely switching personas or editing alongside server workers. Questions, translations and configuration-only changes do not start workflows.
+If AIORCHESTRA_WORKFLOW_WORKER=1, execute only the assigned controller stage and never submit/approve a workflow. If AIORCHESTRA_DIRECT_AGENT=1, do not auto-route direct agent work. Never infer approval from the request to start work; both User Accept gates require explicit approval of their displayed evidence.
+
 Before starting a task:
+For direct/non-delegated work only (skip these steps for a delegated workflow):
 1. Inspect agent filenames and frontmatter descriptions under the library's team */agents/ directories. Read only the metadata needed for selection first.
 2. Select the agent profile that matches the task. If none matches, proceed normally.
 3. Read the selected team's README.md, RULES.md, and the selected agent Markdown file. Read TEAM.json if present: use its id as the team ID, not the storage folder name. Older teams without TEAM.json use the folder name. Use workType and requiredCapabilities for task matching; recommendedModels and routingMode are advisory and do not activate providers.
@@ -138,7 +148,8 @@ def preview(library, custom=None, client='codex'):
     config = client_settings(client)
     path = target_path(custom, client)
     raw = existing(path)
-    block = instruction_block(library, client)
+    skill_info=workflow_setup.preview(Path(library).resolve().parent,path,client)
+    block = instruction_block(library, client, skill_info['workflowSkillPath'])
     merged = merged_content(raw, block)
     override = path.parent / 'AGENTS.override.md'
     active_home = client_home(client).resolve()
@@ -151,7 +162,7 @@ def preview(library, custom=None, client='codex'):
         warnings.append(f'ปลายทางนี้ต่างจาก {config["name"]} home ที่ตรวจพบ ให้ตั้ง {config["env"]} ของ {config["name"]} ให้ตรงกับโฟลเดอร์นี้ด้วย')
     if not Path(library).is_dir():
         warnings.append('คลัง Agent ยังไม่มีอยู่ สร้างทีมและ Agent ก่อนเริ่มใช้')
-    return {'path':str(path), 'exists':path.exists(), 'client':client, 'filename':config['file'], 'detectedBy':config['env'] if os.environ.get(config['env']) else 'user home',
+    return {**skill_info,'path':str(path), 'exists':path.exists(), 'client':client, 'filename':config['file'], 'detectedBy':config['env'] if os.environ.get(config['env']) else 'user home',
             'libraryPath':str(Path(library).resolve()), 'block':block, 'revision':hashlib.sha256(raw).hexdigest(),
             'changed':merged != raw, 'warnings':warnings}
 
@@ -165,6 +176,7 @@ def install(library, custom, revision, client='codex'):
         raw = existing(path)
         if hashlib.sha256(raw).hexdigest() != revision:
             raise ValueError('ไฟล์เปลี่ยนระหว่าง Setup กรุณาดูตัวอย่างใหม่')
+        skill_result=workflow_setup.install(Path(library).resolve().parent,path,client)
         merged = merged_content(raw, info['block'])
         backup = None
         if merged != raw:
@@ -186,4 +198,4 @@ def install(library, custom, revision, client='codex'):
             finally:
                 if tmp and os.path.exists(tmp):
                     os.unlink(tmp)
-        return {**preview(library, custom, client), 'backup':backup, 'updated':merged != raw}
+        return {**preview(library, custom, client), **skill_result,'backup':backup, 'updated':merged != raw or skill_result['workflowSkillUpdated']}

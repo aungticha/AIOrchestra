@@ -122,6 +122,8 @@ def snapshot(workspace):
         db.execute('BEGIN')
         rows=db.execute('SELECT * FROM runs ORDER BY updated_at DESC LIMIT 200').fetchall()
         locks=db.execute("SELECT DISTINCT team FROM runs WHERE status NOT IN ('done','failed','closed')").fetchall()
+        workflows=db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflows'").fetchone()
+        workflow_locks=[row['team'] for row in db.execute("SELECT DISTINCT team FROM workflows WHERE state NOT IN ('completed','cancelled')")] if workflows else []
         events=db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 100').fetchall()
     finally:
         db.close()
@@ -138,7 +140,7 @@ def snapshot(workspace):
         if item['active']: teams[item['team']]=teams.get(item['team'],0)+1
         runs.append(item)
     return {'runs':runs,'events':[dict(e) for e in events],'activeTeams':teams,'timeoutSeconds':TIMEOUT,
-            'updatedAt':stamp,'source':'client_reported','lockedTeams':[r['team'] for r in locks]}
+            'updatedAt':stamp,'source':'client_reported','lockedTeams':sorted(set([r['team'] for r in locks]+workflow_locks))}
 
 
 def close_run(workspace,engine,session):

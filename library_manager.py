@@ -18,6 +18,8 @@ class Locked(ValueError): pass
 
 def assert_unlocked(db,team):
     row=db.execute("SELECT agent,status FROM runs WHERE team=? AND status NOT IN ('done','failed','closed') LIMIT 1",(team,)).fetchone()
+    exists=db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflows'").fetchone()
+    if exists and db.execute("SELECT 1 FROM workflows WHERE team=? AND state NOT IN ('completed','cancelled') LIMIT 1",(team,)).fetchone(): raise Locked('ทีมถูกล็อกโดย Workflow ที่ยังไม่จบ กรุณาจบหรือยกเลิก Workflow ก่อน')
     if row: raise Locked(f'ทีมถูกล็อก: {row["agent"]} มีเซสชันที่ยังไม่จบ ({row["status"]}) กรุณาจบงานหรือปิดรายงานเซสชันค้างก่อน')
 
 

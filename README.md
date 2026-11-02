@@ -1,10 +1,10 @@
 # AI Orchestra
 
-Local dashboard สำหรับรวบรวมทีม, Agent profiles, Skills และกฎส่วนกลาง เขียน Markdown ต้นฉบับครั้งเดียวแล้ว Export ให้แต่ละเครื่องมือ ไม่ต้องมี API key และไม่มีการส่งข้อมูลออกจากเครื่อง
+Local dashboard สำหรับรวบรวมทีม, Agent profiles, Skills และกฎส่วนกลาง เขียน Markdown ต้นฉบับครั้งเดียวแล้ว Export ให้แต่ละเครื่องมือ การจัดการคลังไม่ต้องมี API key; เมื่อเปิด CLI หรือ Workflow จะเชื่อมผู้ให้บริการตามบัญชีของ CLI
 
 ## เริ่มใช้งาน
 
-ต้องมี Python 3.10 ขึ้นไป ไม่ต้องติดตั้งแพ็กเกจเพิ่มเติม
+ต้องมี Python 3.10 ขึ้นไป; macOS/Linux ใช้ standard library ส่วน Terminal บน Windows ติดตั้ง `py -m pip install -r requirements.txt`
 
 ```bash
 python3 demo.py       # ไม่บังคับ: สร้าง 3 ทีมตัวอย่าง โดยไม่แก้ทีมที่มีอยู่แล้ว
@@ -99,7 +99,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 - API ส่งกลับเฉพาะสถานะว่ามีคีย์หรือไม่ ไม่ส่งค่าคีย์กลับหน้าเว็บ และไม่ใส่คีย์ใน Markdown หรือ ZIP ที่ Export
 - `workspace/`, `.env`, `.env.*` และ `api-tokens.json` ถูก ignore จาก Git
 - สถานะ **บันทึกแล้ว** ไม่ใช่การตรวจสอบว่าคีย์ใช้งานได้ ไม่มีการเรียก provider หรือเสียค่า API จากการบันทึก
-- การบันทึกนี้ยังไม่เปลี่ยนวิธีล็อกอินของ Codex/Claude CLI หรือ Desktop; Dashboard ยังไม่ได้เปิดรัน CLI การเชื่อมต่อ runtime ในอนาคตสามารถใช้ `token_store.load(workspace)` โหลดคีย์ฝั่งเซิร์ฟเวอร์โดยไม่ส่งผ่านเบราว์เซอร์
+- การบันทึกนี้ยังไม่เปลี่ยนวิธีล็อกอินของ Codex/Claude CLI หรือ Desktop; Terminal/Workflow ใช้ login และ environment ของ CLI ที่ติดตั้งอยู่ ไม่ฉีดคีย์กลางทั้งหมดเข้า process อัตโนมัติ
 - ไม่รองรับการนำเข้าไฟล์บัญชี `auth.json`, OAuth session หรือ token ของ Desktop: ใช้เฉพาะ API keys ของผู้ให้บริการ
 
 ชื่อคีย์กำหนดเองต้องใช้ A–Z, 0–9 และ `_` ไม่ขึ้นต้นด้วยตัวเลข ยาวไม่เกิน 64 ตัว รองรับสูงสุด 100 คีย์ และไฟล์รวมไม่เกิน 24 KB รายการสถานะแสดงเฉพาะชื่อคีย์ ไม่แสดงค่า token การเก็บ GitHub หรือบริการอื่นไม่ได้เชื่อมต่อบริการนั้นโดยอัตโนมัติ
@@ -394,3 +394,35 @@ Terminal renderer ใช้ [xterm.js](https://xtermjs.org/) 5.5.0 + addon-fit 0
 --event skill --skill implementation-review
 --event done --summary "แก้ checkout validation" --result "แก้ validation และทดสอบกรณีขอบเขตครบแล้ว"
 ```
+
+
+## Executable Workflow
+
+ใช้เมนู **Workflow** เพื่อเริ่มการทำงานอัตโนมัติ แทนการเปิด Agent เดี่ยวจาก Pixel Office ตัวควบคุมอยู่ในโค้ด Python (`workflow.py`, `workflow_runner.py`, `workflow_git.py`, `workflow_store.py`) ไม่ได้อาศัย README ส่งต่องาน
+
+- เลือกทีม Project root และโจทย์ ตั้ง Agent/CLI/Model ต่อบทบาทได้ และเลือกให้ใช้ UI/UX แบบ Auto/บังคับ/ข้าม
+- ต้องมี Git repository พร้อม commit เริ่มต้นและ working tree สะอาด งานจะถูกสร้างใน branch/worktree แยก ไม่แก้ checkout เดิม; โปรเจคว่างที่ยังไม่มี Git/commit ต้องเตรียมก่อนเริ่ม
+- ผู้ใช้กด Accept แผน/แบบก่อน implementation และ Accept ผล Review/QA ก่อน commit/push ปุ่มขอแก้ไขส่งความคิดเห็นกลับไปทำขั้นที่เกี่ยวข้องใหม่ การอนุมัติผูกกับ revision และ candidate ที่ตรวจแล้ว
+- Frontend/Backend ทำงานคู่ขนานจริง แยก worktree และใช้ file ownership จากแผน เมื่อเสร็จ controller รวมไฟล์เข้าตัว Candidate ถ้าแก้ชนกัน/นอกขอบเขต จะหยุดและเก็บทุก worktree ให้ตรวจ ไม่ทับไฟล์เพื่อให้ดูว่าผ่าน
+- Review/QA ไม่ผ่านจะวนกลับไปแก้ จำกัด 3 รอบอัตโนมัติ หากยังไม่ผ่านจะหยุดให้ผู้ใช้ตรวจ findings และกด Retry เอง หรือกด Review / QA Candidate ใหม่หลังแก้ใน worktree
+- ขั้น Git สุดท้ายเป็นของ controller และทำตามลำดับใน Candidate branch ป้องกัน Git index ชนกัน ไม่มี force-push; ถ้า Git hook เปลี่ยน candidate จะหยุดให้กด Review / QA Candidate ใหม่และ Accept อีกครั้งก่อน push; เลือก Push และระบุ remote ตอนสร้างงาน ไม่เลือกคือ commit-only เป้าหมายแสดงก่อน Accept ครั้งที่สอง ไม่มีการ merge เข้า branch เดิมหรือ deploy เอง
+- ดูผลส่งต่อ diff และ CLI logs ได้ในหน้ารายละเอียด งาน/จุด Accept เก็บใน SQLite ของ workspace หาก server ปิดระหว่างขั้นที่กำลังรัน จะไม่อ้างว่างานเสร็จ ให้ตรวจ worktree/log แล้วกด Retry ขั้นที่ค้าง; ช่วงรอ Accept คงเดิมหลังเปิดใหม่
+- ปุ่มยกเลิกหยุด process ที่ตัวควบคุมเปิด โดยยังเก็บ branch/worktree และไฟล์ไว้ให้ตรวจหรือกู้ต่อ การปิด server ตามปกติหยุด workers ด้วย; หากบังคับ kill server/เครื่องดับ ให้ตรวจ process ที่อาจค้างก่อน Retry
+- ใช้ Codex `exec` หรือ Claude `--print` พร้อม structured results; ไม่ใช้ exit code อย่างเดียวตัดสินผ่าน CLI ต้องติดตั้งและ login แล้ว หาก authentication/permissions/JSON ไม่พร้อม workflow จะหยุดพร้อมข้อผิดพลาด ไม่ข้ามไป QA หรืออนุมัติให้เอง
+- ไม่เรียก DevOps/Technical Writer จากการเริ่ม workflow นี้โดยอัตโนมัติ และไม่สร้าง pipeline/Doc เพิ่มจากขั้นพัฒนา รายการผูกบทบาทของ workflow นี้รองรับ Tech Lead, UI/UX, Frontend, Backend, Reviewer และ QA
+- ทั้งทีมล็อกระหว่าง workflow รวมถึงรอ Accept/รอแก้ไข จบหรือยกเลิก workflow ก่อนแก้หรือลบคลังทีม
+
+การทดสอบใช้ worker/subprocess fixtures ใน Git repositories ชั่วคราว รวม push ไป local bare remote เท่านั้น ไม่ส่งงานทดสอบไปใช้โควตาบัญชีจริง
+
+
+## Start workflows from Codex / Claude chats
+
+Setup AI Clients now installs the `aiorchestra-workflow` Skill and adds routing instructions to the client's managed instruction block. Codex's default user Skill location is `~/.agents/skills/aiorchestra-workflow/SKILL.md`; custom client homes use a local skills folder referenced explicitly by the instruction block. Existing unrelated instructions are preserved; changed managed files are backed up.
+
+Keep `server.py` running. Start a new Codex chat and ask, for example: **“ใช้ workflow ทีม Development ทำหน้า Login ในโปรเจคนี้”** or explicitly invoke **`$aiorchestra-workflow`**. The chat sends the task to the real controller, reads progress, shows plan/design or Review/QA evidence, and relays your explicit acceptance for the displayed job and gate. Questions, translations and configuration-only requests do not start workflows; explicitly requested direct edits bypass delegation.
+
+`workflow_bridge.py` accepts one UTF-8 JSON request on stdin or via `--request-file`. Actions: `health`, `options`, `start`, `list`, `status`, bounded `wait` (0–30 seconds), `approve`, `revise`, `retry`, `cancel`, `recheck`. `approve` requires the latest revision, gate number and `user_confirmed=true` after actual user consent; starting a task never approves either gate. `start` supports a stable `request_id` so retrying an uncertain submission does not create duplicate jobs.
+
+The bridge uses `workspace/runtime/server.json` to discover the current loopback port and verifies the app, workspace and server instance before requests. It rejects remote URLs and redirects, ignores HTTP proxy settings, and prevents workflow workers from recursively submitting or approving workflows. Worker CLI processes receive `AIORCHESTRA_WORKFLOW_WORKER=1`; direct interactive Agent terminals receive `AIORCHESTRA_DIRECT_AGENT=1`.
+
+If an older server responds with missing bridge endpoints, restart the server before using the Skill. It does not silently start a server, bypass permissions, reset uncommitted work, or promise unsolicited chat notifications. Once the chat yields, the server keeps executing; ask for status again using the workflow ID.

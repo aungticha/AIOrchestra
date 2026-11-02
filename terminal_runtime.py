@@ -92,7 +92,7 @@ class Session:
         with db: db.execute('INSERT OR REPLACE INTO managed_runs VALUES(?,?,1)',(self.engine,self.id))
         db.close()
         try:
-            env={**os.environ,'TERM':'xterm-256color','COLORTERM':'truecolor','AIORCHESTRA_SESSION':self.id}
+            env={**os.environ,'TERM':'xterm-256color','COLORTERM':'truecolor','AIORCHESTRA_SESSION':self.id,'AIORCHESTRA_DIRECT_AGENT':'1'}
             if os.name=='nt':
                 from winpty import PtyProcess
                 self.proc=PtyProcess.spawn(args,cwd=self.project,env=env,dimensions=(self.rows,self.cols))

@@ -13,6 +13,9 @@ import library_manager
 import team_description
 import agent_appearance
 import terminal_runtime
+import workflow
+import workflow_discovery
+import uuid
 import rewards
 import team_resources
 from urllib.parse import urlsplit,parse_qs,quote
@@ -135,7 +138,7 @@ def export_files(team, target, agent=None):
         files['CONTEXT.md'] = context + '\n## Agent profiles\n' + '\n'.join(agents.values()) + '\n## Skills\n' + '\n'.join(skills.values())
     else:
         raise ValueError('Unknown export target')
-    files['ORCHESTRA-README.md'] = '# AI Orchestra export\n\nGenerated snapshot. Edit originals in AI Orchestra and export again.\n\nExtract into your project after reviewing files. Do not overwrite existing AGENTS.md or CLAUDE.md without merging.\nCodex: open the project in a local Codex client. Profiles in team-agents/ are instructions, not native subagent configuration.\nClaude Code: open the project; .claude/agents contains native agent definitions.\nPortable UI: attach CONTEXT.md or paste its contents into your chat. Web chat does not automatically read your local filesystem.\nNo models are invoked by this dashboard.\n'
+    files['ORCHESTRA-README.md'] = '# AI Orchestra export\n\nGenerated snapshot. Edit originals in AI Orchestra and export again.\n\nExtract into your project after reviewing files. Do not overwrite existing AGENTS.md or CLAUDE.md without merging.\nCodex: open the project in a local Codex client. Profiles in team-agents/ are instructions, not native subagent configuration.\nClaude Code: open the project; .claude/agents contains native agent definitions.\nPortable UI: attach CONTEXT.md or paste its contents into your chat. Web chat does not automatically read your local filesystem.\nExporting this ZIP does not invoke models. Start a Terminal or Workflow from the Dashboard to run local CLIs.\n'
     return files
 
 class Handler(BaseHTTPRequestHandler):
@@ -160,6 +163,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.trusted():
             return self.respond(403, {'error':'Local requests only'})
+        if self.path=='/api/health':return self.respond(200,{'app':'AIOrchestra','workspace':str(DATA.resolve()),'instance':getattr(self.server,'instance_id','local'),'workflowBridge':1})
+        if self.path.startswith('/api/workflows'):
+            try:
+                parsed=urlsplit(self.path);query=parse_qs(parsed.query)
+                if parsed.path=='/api/workflows/options':
+                    catalog=state();runtime=terminal_runtime.options()
+                    return self.respond(200,{'teams':[{'id':team['id'],'recommendedModels':team['recommendedModels'],'agents':[{'id':a['id'],'role':a['role']} for a in team['agents']]} for team in catalog['teams']], 'engines':runtime['engines'],'families':runtime['families']})
+                if parsed.path=='/api/workflows':return self.respond(200,{'workflows':workflow.engine.list(DATA)})
+                if parsed.path=='/api/workflows/run':return self.respond(200,workflow.engine.get(DATA,query.get('id',[''])[0]))
+                return self.respond(404,{'error':'Not found'})
+            except (ValueError,OSError,live_agents.sqlite3.Error) as e:return self.respond(400,{'error':str(e)})
         if self.path.startswith('/api/resources') or self.path == '/api/rewards':
             try:
                 url=urlsplit(self.path);query=parse_qs(url.query)
@@ -206,6 +220,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {'error':str(e)})
         paths = {'/':'index.html', '/app.js':'app.js', '/office_state.js':'office_state.js', '/pixel_office.js':'pixel_office.js', '/office_motion.js':'office_motion.js', '/style.css':'style.css'}
         paths['/community.js']='community.js'
+        paths['/workflow.js']='workflow.js'
         paths.update({'/terminal.js':'terminal.js',**{'/vendor/'+name:'vendor/'+name for name in ('xterm.js','xterm.css','addon-fit.js')}})
         if self.path not in paths:
             return self.respond(404, {'error':'Not found'})
@@ -224,6 +239,8 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('Request must be an object')
+            if self.path == '/api/workflows/create':return self.respond(200,workflow.engine.create(DATA,data))
+            if self.path == '/api/workflows/action':return self.respond(200,workflow.engine.action(DATA,data))
             if self.path == '/api/resources/upload': return self.respond(200,team_resources.upload(DATA,data))
             if self.path == '/api/resources/delete': return self.respond(200,team_resources.delete(DATA,data))
             if self.path == '/api/rewards/review': return self.respond(200,rewards.review(DATA,data))
@@ -286,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.respond(404, {'error':'Not found'})
             self.respond(200, state())
-        except library_manager.Locked as e:
+        except (library_manager.Locked,workflow.Conflict) as e:
             self.respond(409, {'error':str(e)})
         except (ValueError, KeyError, TypeError, OSError, EOFError) as e:
             self.respond(400, {'error':str(e)})
@@ -300,7 +317,11 @@ if __name__ == '__main__':
     def stop_server(_signal, _frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM,stop_server)
+    http=ThreadingHTTPServer(('127.0.0.1', args.port), Handler);http.instance_id=uuid.uuid4().hex
+    workflow_discovery.write(DATA,args.port,http.instance_id)
     try:
-        ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
+        http.serve_forever()
     finally:
+        workflow_discovery.remove(DATA,http.instance_id)
+        workflow.engine.shutdown()
         terminal_runtime.manager.shutdown()
