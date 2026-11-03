@@ -56,8 +56,9 @@ def codex_windows(result):
 def find_codex():
     found=shutil.which('codex')
     if found: return found
-    candidates=[Path('/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
-                Path.home()/'Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex']
+    relative=Path('Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
+    candidates=[root/app/relative for root in (Path('/Applications'),Path.home()/'Applications')
+                for app in ('Codex.app','ChatGPT.app')]
     return next((str(p) for p in candidates if p.is_file()),None)
 
 

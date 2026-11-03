@@ -19,6 +19,15 @@ class QuotaTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_bundled_chatgpt_cli_without_terminal_path(self):
+        expected=Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
+        with patch('quota.shutil.which',return_value=None),patch.object(Path,'is_file',lambda path:path==expected):
+            self.assertEqual(quota.find_codex(),str(expected))
+
+    def test_path_cli_keeps_priority(self):
+        with patch('quota.shutil.which',return_value='/custom/bin/codex'):
+            self.assertEqual(quota.find_codex(),'/custom/bin/codex')
+
     def test_windows_zero_and_invalid_are_not_confused(self):
         self.assertEqual(quota.window('x',100)['remainingPercent'],0)
         self.assertEqual(quota.window('x',0)['remainingPercent'],100)

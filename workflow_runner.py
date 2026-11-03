@@ -9,6 +9,7 @@ import agent_skills
 import live_agents
 import rewards
 import terminal_runtime
+import workflow_media
 
 ROLES=['tech-lead-architect','ui-ux-designer','frontend-developer','backend-developer','code-reviewer','qa-test-engineer']
 PROPERTIES={
@@ -63,21 +64,28 @@ class Runner:
         config=record['roles'][role];engine=config['engine'];executable=terminal_runtime.executable(engine)
         if not executable:raise ValueError(engine+' CLI ไม่พบในเครื่อง')
         directory=Path(folder);directory.mkdir(parents=True,exist_ok=True)
-        schema=directory/'schema.json';output=directory/'result.json';schema.write_text(json.dumps(SCHEMA),encoding='utf-8')
+        schema=directory/'schema.json';output=directory/'result.json';schema.write_text(json.dumps(record.get('result_schema',SCHEMA)),encoding='utf-8')
         if output.exists():output.unlink()
         command=terminal_runtime.cli_command(executable,engine)
-        write=role in ('frontend-developer','backend-developer','qa-test-engineer')
+        graph=record.get('kind')=='graph'
+        write=(record.get('access')=='workspace-write') if record.get('kind')=='agent' else graph or role in ('frontend-developer','backend-developer','qa-test-engineer')
         if engine=='Codex':
+            if graph and record.get('graph',{}).get('kind')=='editorial':command+=['--search']
             command+=['exec','--json','--sandbox','workspace-write' if write else 'read-only','--output-schema',str(schema),'--output-last-message',str(output)]
+            if graph:
+                command+=['--add-dir',str(Path(record['output_root'])/role)]
+                if record.get('graph',{}).get('kind')!='development':command+=['--skip-git-repo-check']
             if config['model']:command+=['--model',config['model']]
+            if record.get('kind')=='agent':command+=['--skip-git-repo-check']
             command+=['-']
         else:
-            command+=['--print','--output-format','json','--json-schema',json.dumps(SCHEMA),'--permission-mode','acceptEdits' if write else 'default','--tools','Read,Glob,Grep,Bash,Edit,Write' if write else 'Read,Glob,Grep','--allowedTools','Read,Glob,Grep,Bash,Edit,Write' if write else 'Read,Glob,Grep']
+            command+=['--print','--output-format','json','--json-schema',json.dumps(record.get('result_schema',SCHEMA)),'--permission-mode','acceptEdits' if write else 'default','--tools',('Read,Glob,Grep,Bash,Edit,Write,WebSearch,WebFetch' if graph else 'Read,Glob,Grep,Bash,Edit,Write') if write else 'Read,Glob,Grep','--allowedTools',('Read,Glob,Grep,Bash,Edit,Write,WebSearch,WebFetch' if graph else 'Read,Glob,Grep,Bash,Edit,Write') if write else 'Read,Glob,Grep']
+            if graph:command+=['--add-dir',record['output_root']]
             if config['model']:command+=['--model',config['model']]
         key=(record['id'],role)
         with self.lock:
             if record['id'] in self.cancelled:raise InterruptedError('Workflow stopped before CLI launch')
-            process=subprocess.Popen(command,cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env={**os.environ,'GIT_TERMINAL_PROMPT':'0','AIORCHESTRA_WORKFLOW_WORKER':'1'},start_new_session=os.name!='nt',creationflags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0) if os.name=='nt' else 0)
+            process=subprocess.Popen(command,cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env={**os.environ,'GIT_TERMINAL_PROMPT':'0','AIORCHESTRA_WORKFLOW_WORKER':'1',**({'AIORCHESTRA_DIRECT_AGENT':'1'} if record.get('kind')=='agent' else {})},start_new_session=os.name!='nt',creationflags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0) if os.name=='nt' else 0)
             self.processes[key]=process
         timer=threading.Timer(1200,lambda:self.stop_process(process));timer.daemon=True;timer.start()
         chunks=[]
@@ -95,7 +103,10 @@ class Runner:
             if engine=='Claude':
                 if value.get('is_error'):raise ValueError('Claude รายงานข้อผิดพลาด')
                 value=value.get('structured_output') or json.loads(value.get('result',''))
-            return validate_result(value)
+            if record.get('kind')=='agent':
+                from agent_jobs import validate_result as validate_agent
+                return validate_agent(value)
+            return workflow_media.validate(value) if graph else validate_result(value)
         except json.JSONDecodeError:raise ValueError('CLI ไม่ส่ง JSON ที่ตรวจสอบได้; ไม่เลื่อนไปขั้นถัดไป') from None
         finally:
             timer.cancel()

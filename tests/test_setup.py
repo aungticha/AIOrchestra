@@ -34,7 +34,7 @@ class SetupTests(unittest.TestCase):
         result=codex_setup.install(self.library,None,info['revision'])
         self.assertTrue(result['updated'])
         self.assertIsNone(result['backup'])
-        self.assertIn('Before starting a task:',(self.home/'AGENTS.md').read_text())
+        self.assertIn('### MCP connection',(self.home/'AGENTS.md').read_text())
 
     def test_default_home_discovery_without_codex_home(self):
         with patch.dict('os.environ',{},clear=True), patch('codex_setup.Path.home',return_value=self.root):

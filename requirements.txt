@@ -1,2 +1,5 @@
-# macOS/Linux use the Python standard library. Windows requires ConPTY bindings.
+# MCP uses the official Python SDK. Windows terminals also require ConPTY bindings.
 pywinpty>=2.0.15,<4; sys_platform == "win32"
+
+# Pin the stable v1 SDK interface used by the stdio adapter.
+mcp>=1.20,<2

@@ -15,6 +15,7 @@ import uuid
 import agent_skills
 import live_agents
 import quota
+import provider_routing
 import rewards
 import team_paths
 
@@ -38,12 +39,13 @@ def cli_command(path,engine):
     if not node or not script.is_file(): raise ValueError('ไม่พบ Node/CLI entrypoint ของ npm shim กรุณาติดตั้ง CLI แบบ native หรือแก้ PATH')
     return [node,str(script)]
 
-def options():
+def options(workspace=None):
     available=True
     if os.name=='nt':
         try: import winpty
         except ImportError: available=False
-    return {'engines':[{'id':e,'installed':bool(executable(e)),'models':m} for e,m in MODELS.items()], 'families':FAMILIES,'ptyAvailable':available,'platform':sys.platform,'defaultProject':str(ROOT)}
+    connected=provider_routing.connections(workspace) if workspace is not None else {}
+    return {'engines':[{'id':e,'installed':bool(executable(e)),'connected':connected.get(e,False),'models':m} for e,m in MODELS.items()], 'families':FAMILIES,'ptyAvailable':available,'platform':sys.platform,'defaultProject':str(ROOT)}
 
 def size(cols,rows):
     if type(cols)!=int or type(rows)!=int or not 20<=cols<=300 or not 5<=rows<=120: raise ValueError('Invalid terminal size')
@@ -60,6 +62,8 @@ class Session:
         if not project.is_absolute() or not project.is_dir(): raise ValueError('Project ต้องเป็น absolute path ของโฟลเดอร์ในเครื่องที่รัน server')
         self.project=str(project.resolve());self.model=payload.get('model','')
         if not isinstance(self.model,str) or len(self.model)>128 or (self.model and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]*',self.model)): raise ValueError('Invalid model ID')
+        if command is None:
+            self.engine,self.model=provider_routing.resolve(self.engine,self.model,provider_routing.connections(self.workspace))
         task=payload.get('task','')
         if not isinstance(task,str) or len(task)>8000 or '\x00' in task: raise ValueError('Task too long')
         self.cols,self.rows=size(payload.get('cols',100),payload.get('rows',24))

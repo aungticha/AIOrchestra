@@ -7,3 +7,5 @@ workspace/
 .env.*
 !.env.example
 api-tokens.json
+
+.venv/

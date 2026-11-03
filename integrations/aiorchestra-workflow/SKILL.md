@@ -7,6 +7,16 @@ description: Start and monitor AIOrchestra development workflows from Codex or C
 
 <!-- AIORCHESTRA:MANAGED-SKILL -->
 
+## Preferred transport: AIOrchestra MCP
+Use configured MCP tools, not shell commands: health/list_agents, start_workflow/get_workflow, approve_workflow/revise_workflow/cancel_workflow. Keep the same request_id after uncertain submissions. Never approve a gate without the user's explicit acceptance of its displayed evidence and revision. Full production preserves both gates. Explicit Editorial scope=planning-only stops after accepted script/storyboard/filming plan at Accept 1, without production or export. Use reference_mode=original when no style-reference clip is requested; reference-based requires actual inspection. Never reduce scope or retry an existing job without user intent. Do not edit alongside server workers.
+
+For an explicitly requested single server agent without workflow, use start_agent, monitor get_agent_job and cancel_agent_job only at the user's request. Default read-only; editing requires an authorized workspace-write task. Never silently downgrade a coordinated workflow to a single agent. Server jobs report lifecycle themselves.
+
+For role instructions in the current chat, use get_agent_context and report_agent for real usage. Do not write the server's database directly. If MCP tools are missing, run MCP Setup in the Dashboard and restart the client; do not infer that the server is down. Worker/direct-agent environment flags prohibit recursive delegation.
+
+## Legacy manual diagnostics only
+The shell bridge below remains for manually requested diagnostics/older clients. Do not use it as automatic fallback when MCP is unavailable.
+
 Bridge command arguments (JSON array):
 __COMMAND__
 

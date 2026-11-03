@@ -14,7 +14,11 @@ import team_description
 import agent_appearance
 import terminal_runtime
 import workflow
+import workflow_templates
+import workflow_artifacts
 import workflow_discovery
+import agent_jobs
+import mcp_setup
 import uuid
 import rewards
 import team_resources
@@ -164,11 +168,25 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted():
             return self.respond(403, {'error':'Local requests only'})
         if self.path=='/api/health':return self.respond(200,{'app':'AIOrchestra','workspace':str(DATA.resolve()),'instance':getattr(self.server,'instance_id','local'),'workflowBridge':1})
+        if self.path.startswith('/api/agents/'):
+            try:
+                parsed=urlsplit(self.path);query=parse_qs(parsed.query)
+                if parsed.path=='/api/agents/catalog':
+                    catalog=state()
+                    return self.respond(200,{'teams':[{'id':t['id'],'name':t['id'],'agents':[{'id':a['id'],'displayName':a['displayName'],'role':a['role'],'description':a['description'],'skills':a.get('skills',[])} for a in t['agents']]} for t in catalog['teams']], 'runtime':terminal_runtime.options(DATA)})
+                if parsed.path=='/api/agents/context':
+                    return self.respond(200,{'context':__import__('workflow_runner').context(DATA,query.get('team',[''])[0],query.get('agent',[''])[0])})
+                if parsed.path=='/api/agents/jobs':return self.respond(200,{'jobs':agent_jobs.manager.listing(DATA)})
+                if parsed.path=='/api/agents/job':return self.respond(200,agent_jobs.manager.public(agent_jobs.manager.get(DATA,query.get('id',[''])[0])))
+                return self.respond(404,{'error':'Not found'})
+            except (ValueError,OSError,live_agents.sqlite3.Error) as e:return self.respond(400,{'error':str(e)})
         if self.path.startswith('/api/workflows'):
             try:
                 parsed=urlsplit(self.path);query=parse_qs(parsed.query)
+                if parsed.path=='/api/workflows/artifact':return workflow_artifacts.serve(self,DATA,query)
+                if parsed.path=='/api/workflows/template':return self.respond(200,workflow_templates.options(DATA,query.get('team',[''])[0]))
                 if parsed.path=='/api/workflows/options':
-                    catalog=state();runtime=terminal_runtime.options()
+                    catalog=state();runtime=terminal_runtime.options(DATA)
                     return self.respond(200,{'teams':[{'id':team['id'],'recommendedModels':team['recommendedModels'],'agents':[{'id':a['id'],'role':a['role']} for a in team['agents']]} for team in catalog['teams']], 'engines':runtime['engines'],'families':runtime['families']})
                 if parsed.path=='/api/workflows':return self.respond(200,{'workflows':workflow.engine.list(DATA)})
                 if parsed.path=='/api/workflows/run':return self.respond(200,workflow.engine.get(DATA,query.get('id',[''])[0]))
@@ -188,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(404,{'error':'Not found'})
             except (ValueError,OSError) as e: return self.respond(400,{'error':str(e)})
         if self.path == '/api/terminal/options':
-            return self.respond(200,terminal_runtime.options())
+            return self.respond(200,terminal_runtime.options(DATA))
         if self.path == '/api/terminal/list':
             return self.respond(200,{'sessions':terminal_runtime.manager.list(DATA)})
         if self.path == '/api/live':
@@ -239,14 +257,28 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError('Request must be an object')
-            if self.path == '/api/workflows/create':return self.respond(200,workflow.engine.create(DATA,data))
+            if self.path=='/api/mcp/preview':return self.respond(200,mcp_setup.preview(DATA,data.get('client','codex'),data.get('path')))
+            if self.path=='/api/mcp/install':return self.respond(200,mcp_setup.install(DATA,data.get('client','codex'),data.get('path'),data.get('revision')))
+            if self.path=='/api/mcp/test':return self.respond(200,mcp_setup.test(DATA))
+            if self.path=='/api/agents/start':return self.respond(200,agent_jobs.manager.start(DATA,data))
+            if self.path=='/api/agents/cancel':return self.respond(200,agent_jobs.manager.cancel(DATA,data.get('id')))
+            if self.path=='/api/agents/report':
+                if not data.get('session') and data.get('event')=='selected':data['session']=uuid.uuid4().hex
+                return self.respond(200,live_agents.report(DATA,data))
+            if self.path == '/api/workflows/install':return self.respond(200,workflow_templates.install_editorial(DATA,data.get('team')))
+            if self.path == '/api/workflows/template':return self.respond(200,{'graph':workflow_templates.save(DATA,data.get('team'),data.get('graph'))})
+            if self.path == '/api/workflows/create':
+                if isinstance(data.get('project'),str) and any(j['state']=='running' and j['project']==str(Path(data['project']).expanduser().resolve()) for j in agent_jobs.manager.listing(DATA)):raise ValueError('Project has a running single-agent job')
+                return self.respond(200,workflow.engine.create(DATA,data))
             if self.path == '/api/workflows/action':return self.respond(200,workflow.engine.action(DATA,data))
             if self.path == '/api/resources/upload': return self.respond(200,team_resources.upload(DATA,data))
             if self.path == '/api/resources/delete': return self.respond(200,team_resources.delete(DATA,data))
             if self.path == '/api/rewards/review': return self.respond(200,rewards.review(DATA,data))
             if self.path.startswith('/api/terminal/'):
                 action=self.path.rsplit('/',1)[-1]
-                if action=='start': return self.respond(200,terminal_runtime.manager.start(DATA,data))
+                if action=='start':
+                    if isinstance(data.get('project'),str) and any(j['state']=='running' and j['project']==str(Path(data['project']).expanduser().resolve()) for j in agent_jobs.manager.listing(DATA)):raise ValueError('Project has a running single-agent job')
+                    return self.respond(200,terminal_runtime.manager.start(DATA,data))
                 item=terminal_runtime.manager.get(DATA,data.get('session'))
                 if action=='read': return self.respond(200,item.read(data.get('cursor',0)))
                 if action=='input': item.input(data.get('text'))
@@ -323,5 +355,6 @@ if __name__ == '__main__':
         http.serve_forever()
     finally:
         workflow_discovery.remove(DATA,http.instance_id)
+        agent_jobs.manager.shutdown()
         workflow.engine.shutdown()
         terminal_runtime.manager.shutdown()

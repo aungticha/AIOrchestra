@@ -89,9 +89,11 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(report_agent.main(args[:-1]+['done','--session',session]),0)
         for client,engine in (('codex','Codex'),('claude','Claude')):
             block=codex_setup.instruction_block(self.workspace/'teams',client)
-            self.assertIn('--engine '+engine,block)
+            self.assertIn('Engine: '+engine,block)
             self.assertIn('report_agent.py',block)
-            self.assertIn('--event skill --skill',block)
+            self.assertIn('report_agent',block)
+            self.assertIn('Report skill only after reading it',block)
+            self.assertIn('instead of shell bridge commands or direct SQLite writes',block)
 
     def test_http_snapshot_reads_cli_reports(self):
         self.event('selected')

@@ -8,6 +8,7 @@ import uuid
 import sys
 from http.client import HTTPException
 from urllib.error import HTTPError,URLError
+import errno
 from urllib.parse import urlsplit,quote
 from urllib.request import Request,build_opener,ProxyHandler,HTTPRedirectHandler
 
@@ -46,7 +47,11 @@ class Bridge:
             try:message=json.loads(error.read(10000)).get('error','HTTP '+str(error.code))
             except (ValueError,AttributeError):message='HTTP '+str(error.code)
             raise ValueError(message) from None
-        except (URLError,TimeoutError,HTTPException):raise ValueError('AIOrchestra server ไม่พร้อม: เปิดหรือรีสตาร์ต server.py แล้วลองอีกครั้ง; อย่าอ้างว่าเริ่มงานสำเร็จ') from None
+        except URLError as error:
+            reason=error.reason
+            if getattr(reason,'errno',None) in (errno.EACCES,errno.EPERM):raise ValueError('Localhost access blocked by client sandbox. Use the configured AIOrchestra MCP tools or request localhost access; do not restart the server blindly.') from None
+            raise ValueError('AIOrchestra server unreachable: verify server.py is running and localhost access is allowed') from None
+        except (TimeoutError,HTTPException):raise ValueError('AIOrchestra request timed out or connection closed; check server and network permissions') from None
     def health(self):
         info=self.request('/api/health')
         if info.get('app')!='AIOrchestra' or Path(info.get('workspace','')).resolve()!=self.workspace:raise ValueError('Server ไม่ใช่ AIOrchestra workspace ที่ตั้งค่าไว้')
@@ -54,12 +59,15 @@ class Bridge:
         return info
     def view(self,run):
         output={key:run.get(key) for key in ('id','state','label','revision','task','team','project','branch','push','remote','error','round','commit','pushed','worktrees')}
+        output['scope']=run.get('graph',{}).get('scope','full');output['reference_mode']=run.get('graph',{}).get('reference_mode','reference-based')
         output['dashboard']=self.url;output['outputs']=run.get('outputs',{})
         output['steps']=[{key:step.get(key) for key in ('role','state','engine','error')} for step in run.get('steps',[])]
         gate={'awaiting_plan':1,'awaiting_delivery':2}.get(run['state'])
         if gate:
             output['approval']={'id':run['id'],'revision':run['revision'],'gate':gate,'user_confirmed':False}
             output['instruction']='แสดงแผน/แบบหรือผล Review/QA และเป้าหมาย Git ให้ผู้ใช้ตรวจ แล้วรอคำอนุมัติจริงสำหรับขั้นนี้'
+            if gate==1:
+                output['reference_candidates']=run.get('reference_candidates',[]);output['graph']=run.get('graph')
             if gate==2:output['diff']=run.get('diff','');output['verified_digest']=run.get('verified_digest')
         return output
     def get(self,identifier):
@@ -88,6 +96,8 @@ class Bridge:
             gate={'awaiting_plan':1,'awaiting_delivery':2}.get(record['state'])
             if type(payload.get('gate'))!=int or payload['gate']!=gate or payload.get('user_confirmed') is not True:raise ValueError('ต้องมีคำอนุมัติจริง: ส่ง gate, revision ล่าสุด และ user_confirmed=true')
         value={'id':record['id'],'revision':revision,'action':action,'feedback':payload.get('feedback','')}
+        for key in ('selected_reference','optional','references'):
+            if key in payload:value[key]=payload[key]
         return self.view(self.request('/api/workflows/action',value))
     def start(self,payload):
         options=self.request('/api/workflows/options');teams=options['teams'];team=payload.get('team')

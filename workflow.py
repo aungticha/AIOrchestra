@@ -14,6 +14,7 @@ import live_agents
 import agent_skills
 import team_paths
 import terminal_runtime
+import provider_routing
 import workflow_git as git
 import workflow_runner as cli
 import workflow_store as store
@@ -23,7 +24,12 @@ class Conflict(ValueError):pass
 
 class Engine:
     def __init__(self,runner=None):
-        self.runner=runner or cli.Runner();self.lock=threading.RLock();self.workers={};self.cancelled=set();self.stopping=False
+        self.runner=runner or cli.Runner();self.lock=threading.RLock();self.workers={};self.cancelled=set();self.stopping=False;self._graphs=None
+    def graphs(self):
+        if self._graphs is None:
+            from workflow_graph_engine import GraphEngine
+            self._graphs=GraphEngine(self.runner)
+        return self._graphs
     def directory(self,workspace,identifier):
         root=Path(workspace).resolve();path=root/'runtime'/'workflows'/identifier
         if not path.resolve().is_relative_to(root) or any(p.is_symlink() for p in (root/'runtime',root/'runtime'/'workflows',path)):raise ValueError('Workflow storage cannot be a symlink')
@@ -43,15 +49,20 @@ class Engine:
             except (PermissionError,OSError):continue
             record['state']='interrupted';record['error']='Server หยุดระหว่างทำงาน ตรวจ worktree/log แล้วกด Retry เพื่อทำขั้นเดิมต่อ';store.save(workspace,record)
     def list(self,workspace):
-        with self.lock:self.recover(workspace);return [self.public(r,True) for r in store.listing(workspace)]
+        with self.lock:
+            self.recover(workspace)
+            return [(self.graphs().public(r,True) if r.get('kind')=='graph' else self.public(r,True)) for r in store.listing(workspace) if not r.get('dismissed')]
     def get(self,workspace,identifier):
-        with self.lock:self.recover(workspace);return self.public(store.get(workspace,identifier))
+        with self.lock:
+            self.recover(workspace);record=store.get(workspace,identifier)
+            return self.graphs().public(record) if record.get('kind')=='graph' else self.public(record)
     def update(self,workspace,identifier,change):
         with self.lock:
             record=store.get(workspace,identifier);change(record);store.save(workspace,record);return record
     def state(self,workspace,identifier,value,**fields):
         return self.update(workspace,identifier,lambda r:r.update(state=value,**fields))
     def create(self,workspace,payload):
+        if 'graph' in payload:return self.graphs().create(workspace,payload)
         with self.lock:
             team=team_paths.team_id(payload.get('team'));task=payload.get('task','')
             if not isinstance(task,str) or not task.strip() or len(task)>8000:raise ValueError('ระบุโจทย์ไม่เกิน 8000 ตัว')
@@ -66,12 +77,14 @@ class Engine:
             project,base=git.validate_project(payload.get('project'))
             for previous in store.listing(workspace):
                 if previous['state'] not in store.TERMINAL and (previous['project']==project or previous['team']==team):raise Conflict('ทีม/Project นี้มี Workflow ที่ยังไม่จบ')
+            connected=provider_routing.connections(workspace)
             roles={};contexts={};options=payload.get('roles',{})
             if not isinstance(options,dict):raise ValueError('Invalid agent assignments')
             for role in cli.ROLES:
                 choice=options.get(role,{})
                 if not isinstance(choice,dict):raise ValueError('Invalid role config')
                 agent=choice.get('agent',role);engine=choice.get('engine',payload.get('engine','Codex'));model=choice.get('model','')
+                engine,model=provider_routing.resolve(engine,model,connected)
                 if engine not in terminal_runtime.MODELS or not terminal_runtime.executable(engine):raise ValueError(engine+' CLI ยังไม่พร้อมใช้งาน')
                 if not isinstance(model,str) or len(model)>128 or model and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]*',model):raise ValueError('Invalid model')
                 contexts[role]=cli.context(workspace,team,agent)
@@ -197,9 +210,13 @@ class Engine:
                 current=self.workers.get(identifier)
                 if current and current[0] is threading.current_thread():self.workers.pop(identifier,None)
     def action(self,workspace,payload):
+        if store.get(workspace,payload.get('id')).get('kind')=='graph':return self.graphs().action(workspace,payload)
         with self.lock:
             identifier=payload.get('id');record=store.get(workspace,identifier);action=payload.get('action')
-            if payload.get('revision')!=record['revision']:raise Conflict('Workflow เปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนกด')
+            if action!='cancel' and payload.get('revision')!=record['revision']:raise Conflict('Workflow เปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนกด')
+            if action=='dismiss':
+                if record['state'] not in store.TERMINAL:raise Conflict('ยกเลิกงานก่อนปิดรายการ')
+                record['dismissed']=True;store.save(workspace,record);return self.public(record)
             if action=='cancel':
                 if record['state'] in store.TERMINAL:return self.public(record)
                 if record['state']=='publishing':raise Conflict('กำลังทำ Git operation รอผลก่อนเพื่อไม่ให้ Git ค้างกลางรายการ')
@@ -235,6 +252,7 @@ class Engine:
             self.state(workspace,identifier,'cancelled',error='')
         return self.get(workspace,identifier)
     def shutdown(self):
+        if self._graphs is not None:self._graphs.shutdown()
         self.stopping=True
         with self.lock:workers=list(self.workers.items())
         for identifier,_ in workers:self.runner.stop(identifier)
